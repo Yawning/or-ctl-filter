@@ -26,6 +26,9 @@ package main
 
 import (
 	"bufio"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -44,21 +47,30 @@ const (
 	controlSocketFile = "/var/run/tor/control"
 	torControlAddr    = "127.0.0.1:9151" // Match ControlPort in torrc-defaults.
 
-	cmdProtocolInfo = "PROTOCOLINFO"
-	cmdAuthenticate = "AUTHENTICATE"
-	cmdGetInfo      = "GETINFO"
-	cmdSignal       = "SIGNAL"
+	cmdProtocolInfo  = "PROTOCOLINFO"
+	cmdAuthenticate  = "AUTHENTICATE"
+	cmdAuthChallenge = "AUTHCHALLENGE"
+	cmdGetInfo       = "GETINFO"
+	cmdSignal        = "SIGNAL"
 
 	argSignalNewnym = "NEWNYM"
 	argGetinfoSocks = "net/listeners/socks"
+	argServerHash   = "SERVERHASH="
+	argServerNonce  = "SERVERNONCE="
 
 	respProtocolInfoAuth       = "250-AUTH"
 	respProtocolInfoMethods    = "METHODS="
 	respProtocolInfoCookieFile = "COOKIEFILE="
 
+	respAuthChallenge = "250 AUTHCHALLENGE "
+
 	authMethodNull       = "NULL"
 	authMethodCookie     = "COOKIE"
 	authMethodSafeCookie = "SAFECOOKIE"
+
+	authNonceLength   = 32
+	authServerHashKey = "Tor safe cookie authentication server-to-controller hash"
+	authClientHashKey = "Tor safe cookie authentication controller-to-server hash"
 
 	errAuthenticationRequired = "514 Authentication required\n"
 	errUnrecognizedCommand    = "510 Unrecognized command\n"
@@ -77,6 +89,61 @@ func readAuthCookie(path string) ([]byte, error) {
 	return cookie, nil
 }
 
+func authSafeCookie(conn net.Conn, connReader *bufio.Reader, cookie []byte) ([]byte, error) {
+	clientNonce := make([]byte, authNonceLength)
+	if _, err := rand.Read(clientNonce); err != nil {
+		return nil, fmt.Errorf("generating AUTHCHALLENGE nonce: %s", err)
+	}
+	clientNonceStr := hex.EncodeToString(clientNonce)
+
+	// Send and process the AUTHCHALLENGE.
+	authChallengeReq := []byte(fmt.Sprintf("%s %s %s\n", cmdAuthChallenge, authMethodSafeCookie, clientNonceStr))
+	if _, err := conn.Write(authChallengeReq); err != nil {
+		return nil, fmt.Errorf("writing AUTHCHALLENGE request: %s", err)
+	}
+	line, err := connReader.ReadBytes('\n')
+	if err != nil {
+		return nil, fmt.Errorf("reading AUTHCHALLENGE response: %s", err)
+	}
+	lineStr := strings.TrimSpace(string(line))
+	respStr := strings.TrimPrefix(lineStr, respAuthChallenge)
+	if respStr == lineStr {
+		return nil, fmt.Errorf("parsing AUTHCHALLENGE response")
+	}
+	splitResp := strings.SplitN(respStr, " ", 2)
+	if len(splitResp) != 2 {
+		return nil, fmt.Errorf("parsing AUTHCHALLENGE response")
+	}
+	hashStr := strings.TrimPrefix(splitResp[0], argServerHash)
+	serverHash, err := hex.DecodeString(hashStr)
+	if err != nil {
+		return nil, fmt.Errorf("decoding AUTHCHALLENGE ServerHash: %s", err)
+	}
+	serverNonceStr := strings.TrimPrefix(splitResp[1], argServerNonce)
+	serverNonce, err := hex.DecodeString(serverNonceStr)
+	if err != nil {
+		return nil, fmt.Errorf("decoding AUTHCHALLENGE ServerNonce: %s", err)
+	}
+
+	// Validate the ServerHash.
+	m := hmac.New(sha256.New, []byte(authServerHashKey))
+	m.Write([]byte(cookie))
+	m.Write([]byte(clientNonce))
+	m.Write([]byte(serverNonce))
+	dervServerHash := m.Sum(nil)
+	if !hmac.Equal(serverHash, dervServerHash) {
+		return nil, fmt.Errorf("AUTHCHALLENGE ServerHash is invalid")
+	}
+
+	// Calculate the ClientHash.
+	m = hmac.New(sha256.New, []byte(authClientHashKey))
+	m.Write([]byte(cookie))
+	m.Write([]byte(clientNonce))
+	m.Write([]byte(serverNonce))
+
+	return m.Sum(nil), nil
+}
+
 func authenticate(torConn net.Conn, torConnReader *bufio.Reader, appConn net.Conn, appConnReader *bufio.Reader) error {
 	var canNull, canCookie, canSafeCookie bool
 	var cookiePath string
@@ -84,17 +151,16 @@ func authenticate(torConn net.Conn, torConnReader *bufio.Reader, appConn net.Con
 	// Figure out the best auth method, and where the cookie is if any.
 	protocolInfoReq := []byte(fmt.Sprintf("%s\n", cmdProtocolInfo))
 	if _, err := torConn.Write(protocolInfoReq); err != nil {
-		return fmt.Errorf("writing tor PROTOCOLINFO request:%s", err)
+		return fmt.Errorf("writing PROTOCOLINFO request: %s", err)
 	}
 	for {
 		line, err := torConnReader.ReadBytes('\n')
 		if err != nil {
-			return fmt.Errorf("reading tor PROTOCOLINFO response:%s", err)
+			return fmt.Errorf("reading PROTOCOLINFO response: %s", err)
 		}
 		lineStr := strings.TrimSpace(string(line))
-		log.Printf("P<-T: [%s]\n", lineStr)
 		if !strings.HasPrefix(lineStr, "250") {
-			return fmt.Errorf("parsing tor PROTOCOLINFO response")
+			return fmt.Errorf("parsing PROTOCOLINFO response")
 		} else if lineStr == "250 OK" {
 			break
 		}
@@ -142,23 +208,23 @@ func authenticate(torConn net.Conn, torConnReader *bufio.Reader, appConn net.Con
 		if err != nil {
 			return err
 		}
-		if canSafeCookie && false {
-			// TODO: SAFECOOKIE support.
-		} else if canCookie {
-			cookieStr := hex.EncodeToString(cookie)
-			authReq = []byte(fmt.Sprintf("%s %s\n", cmdAuthenticate, cookieStr))
-		} else {
-			return fmt.Errorf("SAFECOOKIE required, not implemented yet")
+		if canSafeCookie {
+			cookie, err = authSafeCookie(torConn, torConnReader, cookie)
+			if err != nil {
+				return err
+			}
 		}
+		cookieStr := hex.EncodeToString(cookie)
+		authReq = []byte(fmt.Sprintf("%s %s\n", cmdAuthenticate, cookieStr))
 	} else {
 		return fmt.Errorf("no supported authentication methods")
 	}
 	if _, err := torConn.Write(authReq); err != nil {
-		return fmt.Errorf("writing tor AUTHENTICATE request:%s", err)
+		return fmt.Errorf("writing AUTHENTICATE request: %s", err)
 	}
 	authResp, err := torConnReader.ReadBytes('\n')
 	if err != nil {
-		return fmt.Errorf("reading tor AUTHENTICATE response:%s", err)
+		return fmt.Errorf("reading AUTHENTICATE response: %s", err)
 	}
 
 	// "Authenticate" the application.
@@ -172,7 +238,7 @@ func authenticate(torConn net.Conn, torConnReader *bufio.Reader, appConn net.Con
 		return fmt.Errorf("invalid app command: '%s'", splitReq[0])
 	}
 	if _, err = appConn.Write(authResp); err != nil {
-		return fmt.Errorf("writing app AUTHENTICATE response:%s", err)
+		return fmt.Errorf("writing app AUTHENTICATE response: %s", err)
 	}
 	return nil
 }
@@ -226,6 +292,7 @@ func filterConnection(appConn net.Conn) {
 	appConnReader := bufio.NewReader(appConn)
 	if err = authenticate(torConn, torConnReader, appConn, appConnReader); err != nil {
 		log.Printf("Failed to authenticate: %s\n", err)
+		return
 	}
 
 	// Start filtering commands as appropriate.

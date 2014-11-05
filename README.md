@@ -11,10 +11,11 @@ call netcat.
 
 Limitations/differences:
  * It only supports ControlSocket and not ControlPort.
- * It only support NULL and COOKIE authentication.
+ * It only supports NULL, COOKIE, and SAFECOOKIE authentication.
  * It does not lie about the SocksPort.
  * It does not limit request lenghts, because that's tor's problem, not mine.
  * It does not allow GETINFO inquries regarding tor's bootstrap process.
+ * It expects the first command the application sends is AUTHENTICATE.
 
 Commands allowed:
  * "GETINFO net/listeners/socks"
