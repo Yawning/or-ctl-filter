@@ -13,13 +13,37 @@ Limitations/differences:
  * It only supports ControlSocket and not ControlPort.
  * It only supports NULL, COOKIE, and SAFECOOKIE authentication.
  * It does not lie about the SocksPort.
- * It does not limit request lenghts, because that's tor's problem, not mine.
+ * It does not limit request lengths, because that's tor's problem, not mine.
  * It does not allow GETINFO inquries regarding tor's bootstrap process.
  * It expects the first command the application sends is AUTHENTICATE.
 
 Commands allowed:
  * "GETINFO net/listeners/socks"
  * "SIGNAL NEWNYM"
+
+Example torrc:
+```
+# This requires the control port and cookie auth.
+CookieAuthentication 1
+CookieAuthFile /var/run/tor/control_auth_cookie
+CookieAuthFileGroupReadable 1
+
+# This requirs control port interaction over AF_UNIX.
+ControlSocket /var/run/tor/control
+ControlSocketsGroupWritable 1
+```
+
+How to run:
+```
+$ or-ctl-filter &
+$ export TOR_SKIP_LAUNCH=1
+$ export TOR_SOCKS_PORT=9050
+$ start-tor-browser
+```
+
+I personally call `or-ctl-filter` from my openbox autostart file.  Bad things
+will happen if multiple instances are ran at the same time since the control
+port is hardcoded to what Tor Browser expects.
 
 Acknowledgements:
  * https://www.whonix.org/wiki/Dev/Control_Port_Filter_Proxy
