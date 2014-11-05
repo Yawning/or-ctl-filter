@@ -150,6 +150,8 @@ func authenticate(torConn net.Conn, torConnReader *bufio.Reader, appConn net.Con
 		} else {
 			return fmt.Errorf("SAFECOOKIE required, not implemented yet")
 		}
+	} else {
+		return fmt.Errorf("no supported authentication methods")
 	}
 	if _, err := torConn.Write(authReq); err != nil {
 		return fmt.Errorf("writing tor AUTHENTICATE request:%s", err)
