@@ -10,7 +10,8 @@ commands".  But on a positive note, it's not a collection of bash and doesn't
 call netcat.
 
 Limitations/differences:
- * It only supports ControlSocket with CookieAuthentication.
+ * It only supports ControlSocket and not ControlPort.
+ * It only support NULL and COOKIE authentication.
  * It does not lie about the SocksPort.
  * It does not limit request lenghts, because that's tor's problem, not mine.
  * It does not allow GETINFO inquries regarding tor's bootstrap process.

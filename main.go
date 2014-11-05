@@ -33,6 +33,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -40,10 +41,10 @@ import (
 const (
 	defaultLogFile = "or-ctl-filter.log"
 
-	cookieAuthFile    = "/var/run/tor/control_auth_cookie"
 	controlSocketFile = "/var/run/tor/control"
 	torControlAddr    = "127.0.0.1:9151" // Match ControlPort in torrc-defaults.
 
+	cmdProtocolInfo = "PROTOCOLINFO"
 	cmdAuthenticate = "AUTHENTICATE"
 	cmdGetInfo      = "GETINFO"
 	cmdSignal       = "SIGNAL"
@@ -51,39 +52,125 @@ const (
 	argSignalNewnym = "NEWNYM"
 	argGetinfoSocks = "net/listeners/socks"
 
+	respProtocolInfoAuth       = "250-AUTH"
+	respProtocolInfoMethods    = "METHODS="
+	respProtocolInfoCookieFile = "COOKIEFILE="
+
+	authMethodNull       = "NULL"
+	authMethodCookie     = "COOKIE"
+	authMethodSafeCookie = "SAFECOOKIE"
+
 	errAuthenticationRequired = "514 Authentication required\n"
 	errUnrecognizedCommand    = "510 Unrecognized command\n"
 )
 
 var filteredControlAddr *net.UnixAddr
-var cookieString string
 var enableLogging bool
 var logFile string
 
+func readAuthCookie(path string) ([]byte, error) {
+	// Read the cookie auth file.
+	cookie, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading cookie auth file: %s", err)
+	}
+	return cookie, nil
+}
+
 func authenticate(torConn net.Conn, torConnReader *bufio.Reader, appConn net.Conn, appConnReader *bufio.Reader) error {
-	// Authenticate with the real (tor) control port.
-	authReq := []byte(fmt.Sprintf("%s %s\n", cmdAuthenticate, cookieString))
+	var canNull, canCookie, canSafeCookie bool
+	var cookiePath string
+
+	// Figure out the best auth method, and where the cookie is if any.
+	protocolInfoReq := []byte(fmt.Sprintf("%s\n", cmdProtocolInfo))
+	if _, err := torConn.Write(protocolInfoReq); err != nil {
+		return fmt.Errorf("writing tor PROTOCOLINFO request:%s", err)
+	}
+	for {
+		line, err := torConnReader.ReadBytes('\n')
+		if err != nil {
+			return fmt.Errorf("reading tor PROTOCOLINFO response:%s", err)
+		}
+		lineStr := strings.TrimSpace(string(line))
+		log.Printf("P<-T: [%s]\n", lineStr)
+		if !strings.HasPrefix(lineStr, "250") {
+			return fmt.Errorf("parsing tor PROTOCOLINFO response")
+		} else if lineStr == "250 OK" {
+			break
+		}
+		splitResp := strings.SplitN(lineStr, " ", 3)
+		if splitResp[0] == respProtocolInfoAuth {
+			if len(splitResp) == 1 {
+				continue
+			}
+
+			methodsStr := strings.TrimPrefix(splitResp[1], respProtocolInfoMethods)
+			if methodsStr == splitResp[1] {
+				continue
+			}
+			methods := strings.Split(methodsStr, ",")
+			for _, method := range methods {
+				switch method {
+				case authMethodNull:
+					canNull = true
+				case authMethodCookie:
+					canCookie = true
+				case authMethodSafeCookie:
+					canSafeCookie = true
+				}
+			}
+			if (canCookie || canSafeCookie) && len(splitResp) == 3 {
+				cookiePathStr := strings.TrimPrefix(splitResp[2], respProtocolInfoCookieFile)
+				if cookiePathStr == splitResp[2] {
+					continue
+				}
+				cookiePath, err = strconv.Unquote(cookiePathStr)
+				if err != nil {
+					continue
+				}
+			}
+		}
+	}
+
+	// Authenticate using the best possible authentication method.
+	var authReq []byte
+	if canNull {
+		authReq = []byte(fmt.Sprintf("%s\n", cmdAuthenticate))
+	} else if (canCookie || canSafeCookie) && (cookiePath != "") {
+		// Read the auth cookie.
+		cookie, err := readAuthCookie(cookiePath)
+		if err != nil {
+			return err
+		}
+		if canSafeCookie && false {
+			// TODO: SAFECOOKIE support.
+		} else if canCookie {
+			cookieStr := hex.EncodeToString(cookie)
+			authReq = []byte(fmt.Sprintf("%s %s\n", cmdAuthenticate, cookieStr))
+		} else {
+			return fmt.Errorf("SAFECOOKIE required, not implemented yet")
+		}
+	}
 	if _, err := torConn.Write(authReq); err != nil {
-		return fmt.Errorf("writing tor authentication request:%s\n", err)
+		return fmt.Errorf("writing tor AUTHENTICATE request:%s", err)
 	}
 	authResp, err := torConnReader.ReadBytes('\n')
 	if err != nil {
-		return fmt.Errorf("reading tor authentication response:%s\n", err)
+		return fmt.Errorf("reading tor AUTHENTICATE response:%s", err)
 	}
 
 	// "Authenticate" the application.
 	authReq, err = appConnReader.ReadBytes('\n')
 	if err != nil {
-		return fmt.Errorf("reading app authentication request:%s\n", err)
+		return fmt.Errorf("reading app AUTHENTICATE request:%s", err)
 	}
 	splitReq := strings.SplitN(string(authReq), " ", 2)
-	if strings.ToUpper(splitReq[0]) != cmdAuthenticate {
-		// Note: Technically "QUIT" is ok here, but whatever.
+	if strings.ToUpper(splitReq[0]) != cmdAuthenticate { // TODO: PROTOCOLINFO/AUTHCHALLENGE/QUIT?
 		appConn.Write([]byte(errAuthenticationRequired))
 		return fmt.Errorf("invalid app command: '%s'", splitReq[0])
 	}
 	if _, err = appConn.Write(authResp); err != nil {
-		return fmt.Errorf("writing app authentication response:%s\n", err)
+		return fmt.Errorf("writing app AUTHENTICATE response:%s", err)
 	}
 	return nil
 }
@@ -235,20 +322,13 @@ func main() {
 	// Deal with logging.
 	if !enableLogging {
 		log.SetOutput(ioutil.Discard)
-	} else {
+	} else if logFile != "" {
 		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
 			log.Fatalf("Failed to create log file: %s\n", err)
 		}
 		log.SetOutput(f)
 	}
-
-	// Read the cookie auth file.
-	cookie, err := ioutil.ReadFile(cookieAuthFile)
-	if err != nil {
-		log.Fatalf("Failed to read cookie auth file: %s\n", err)
-	}
-	cookieString = hex.EncodeToString(cookie)
 
 	filteredControlAddr, err = net.ResolveUnixAddr("unix", controlSocketFile)
 	if err != nil {
