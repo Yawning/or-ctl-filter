@@ -1,19 +1,10 @@
 /*
  * main.go - or-ctl-filter
- * Copyright (C) 2014  Yawning Angel
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * To the extent possible under law, Yawning Angel has waived all copyright and
+ * related or neighboring rights to or-ctl-filter, using the creative commons
+ * "cc0" public domain dedication. See LICENSE or
+ * <http://creativecommons.org/publicdomain/zero/1.0/> for full details.
  */
 
 // or-ctl-filter is a Tor Control Port filter in the spirit of
