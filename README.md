@@ -7,11 +7,11 @@ Whonix developers.  It is more limited as the only use case considered is
 "I want to run Tor Browser on my desktop with a system tor service and have
 'about:tor' and 'New Identity' work while disallowing scary control port
 commands".  But on a positive note, it's not a collection of bash and doesn't
-call netcat.
+call netcat (Yes, I'm aware that they rewrote it in Python).
 
 Limitations/differences:
- * It only supports ControlSocket and not ControlPort.
- * It only supports NULL, COOKIE, and SAFECOOKIE authentication.
+ * It is currently hardcoded to connect to a ControlSocket.
+ * It only supports NULL and SAFECOOKIE authentication.
  * It does not lie about the SocksPort.
  * It does not limit request lengths, because that's tor's problem, not mine.
  * It does not allow GETINFO inquries regarding tor's bootstrap process.
