@@ -82,7 +82,7 @@ func filterConnection(appConn net.Conn) {
 	defer torConn.Close()
 
 	// Authenticate with the real tor connection.
-	if err = torConn.Authenticate(); err != nil {
+	if err = torConn.Authenticate(""); err != nil {
 		log.Printf("Failed to connect to the tor control port: %s\n", err)
 		return
 	}
@@ -143,7 +143,7 @@ preauthLoop:
 		splitReq := strings.SplitN(string(appReq), " ", 2)
 		switch strings.ToUpper(strings.TrimSpace(splitReq[0])) {
 		case cmdProtocolInfo:
-			respStr := "250-PROTOCOLINFO 1\r\n250-AUTH METHODS=NULL,PASSWORD\r\n250-VERSION Tor=\"" + pi.TorVersion + "\"\r\n" + responseOk
+			respStr := "250-PROTOCOLINFO 1\r\n250-AUTH METHODS=NULL,HASHEDPASSWORD\r\n250-VERSION Tor=\"" + pi.TorVersion + "\"\r\n" + responseOk
 			writeAppConn(proxyToClientPreAuth, []byte(respStr))
 		case cmdAuthenticate:
 			writeAppConn(proxyToClientPreAuth, []byte(responseOk))

@@ -15,7 +15,6 @@ Limitations/differences:
  * It does not lie about the SocksPort.
  * It does not limit request lengths, because that's tor's problem, not mine.
  * It does not allow GETINFO inquries regarding tor's bootstrap process.
- * It expects the first command the application sends is AUTHENTICATE.
 
 Commands allowed:
  * "GETINFO net/listeners/socks"
