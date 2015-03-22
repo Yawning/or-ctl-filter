@@ -81,16 +81,16 @@ func filterConnection(appConn net.Conn) {
 	}
 	defer torConn.Close()
 
-	// Authenticate with the real tor connection.
-	if err = torConn.Authenticate(""); err != nil {
-		log.Printf("Failed to connect to the tor control port: %s\n", err)
-		return
-	}
-
 	// Get a valid PROTOCOLINFO command so we can lie about the version.
 	pi, err := torConn.ProtocolInfo()
 	if err != nil {
 		log.Printf("Failed to query protocol info: %s\n", err)
+		return
+	}
+
+	// Authenticate with the real tor connection.
+	if err = torConn.Authenticate(""); err != nil {
+		log.Printf("Failed to connect to the tor control port: %s\n", err)
 		return
 	}
 
