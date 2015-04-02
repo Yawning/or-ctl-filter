@@ -47,8 +47,6 @@ port is hardcoded to what Tor Browser expects.
 Bugs:
  * I should stop being lazy and add command line options so people can specify a
    password/the address of the real control port.
- * This should probably return "513 Unrecognized command argument" for filtered
-   SIGNAL/GETINFO args.  Tor Browser doesn't seem to care though.
 
 Acknowledgements:
  * https://www.whonix.org/wiki/Dev/Control_Port_Filter_Proxy
