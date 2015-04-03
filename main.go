@@ -21,16 +21,23 @@ import (
 	"log"
 	"net"
 	"os"
+
+	"github.com/yawning/bulb/utils"
 )
 
 const (
-	defaultLogFile = "or-ctl-filter.log"
-	torControlAddr = "127.0.0.1:9151" // Match ControlPort in torrc-defaults.
+	defaultLogFile     = "or-ctl-filter.log"
+	defaultControlAddr = "unix:///var/run/tor/control"
+
+	defaultFilteredAddr = "tcp://127.0.0.1:9151"
+	torControlAddr      = "127.0.0.1:9151" // Match ControlPort in torrc-defaults.
 )
 
 func main() {
 	enableLogging := flag.Bool("enable-logging", false, "enable logging")
 	logFile := flag.String("log-file", defaultLogFile, "log file")
+	controlAddr := flag.String("control-address", defaultControlAddr, "tor control port address")
+	filteredAddr := flag.String("filtered-control-address", defaultFilteredAddr, "filtered control port address")
 	flag.Parse()
 
 	// Deal with logging.
@@ -45,8 +52,11 @@ func main() {
 	}
 
 	// Initialize the listener
-	// TODO: Allow specifying where to listen on.
-	ln, err := net.Listen("tcp", torControlAddr)
+	fNet, fAddr, err := utils.ParseControlPortString(*filteredAddr)
+	if err != nil {
+		log.Fatalf("Failed to resolved filtere port: %s\n", err)
+	}
+	ln, err := net.Listen(fNet, fAddr)
 	if err != nil {
 		log.Fatalf("Failed to listen on the filter port: %s\n", err)
 	}
@@ -59,7 +69,8 @@ func main() {
 			log.Printf("Failed to Accept(): %s\n", err)
 			continue
 		}
-		s := newSession(conn)
+		// TODO: Allow specifying password.
+		s := newSession(conn, *controlAddr, "")
 		go s.FilterSession()
 	}
 }

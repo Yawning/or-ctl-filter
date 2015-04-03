@@ -21,11 +21,10 @@ import (
 	"sync"
 
 	"github.com/yawning/bulb"
+	"github.com/yawning/bulb/utils"
 )
 
 const (
-	controlSocketFile = "/var/run/tor/control"
-
 	cmdProtocolInfo  = "PROTOCOLINFO"
 	cmdAuthenticate  = "AUTHENTICATE"
 	cmdAuthChallenge = "AUTHCHALLENGE"
@@ -47,7 +46,9 @@ type session struct {
 	torConn   *bulb.Conn
 	protoInfo *bulb.ProtocolInfo
 
-	isPreAuth bool
+	isPreAuth   bool
+	controlAddr string
+	password    string
 
 	sync.WaitGroup
 	errChan chan error
@@ -60,9 +61,11 @@ func (s *session) FilterSession() {
 	log.Printf("New app connection from: %s\n", clientAddr)
 
 	// Connect to the real control port.
-	// TODO: Allow specifying the address as an argument.
-	var err error
-	if s.torConn, err = bulb.Dial("unix", controlSocketFile); err != nil {
+	network, addr, err := utils.ParseControlPortString(s.controlAddr)
+	if err != nil {
+		log.Printf("Failed to resolve the tor control port: %s\n", err)
+	}
+	if s.torConn, err = bulb.Dial(network, addr); err != nil {
 		log.Printf("Failed to connect to the tor control port: %s\n", err)
 		return
 	}
@@ -75,8 +78,7 @@ func (s *session) FilterSession() {
 	}
 
 	// Authenticate with the real tor connection.
-	// TODO: Allow specifying a password.
-	if err = s.torConn.Authenticate(""); err != nil {
+	if err = s.torConn.Authenticate(s.password); err != nil {
 		log.Printf("Failed to connect to the tor control port: %s\n", err)
 		return
 	}
@@ -292,11 +294,13 @@ func (s *session) appConnReadLine() (cmd string, splitCmd []string, rawLine []by
 	return
 }
 
-func newSession(appConn net.Conn) *session {
+func newSession(appConn net.Conn, controlAddr, password string) *session {
 	s := new(session)
 	s.appConn = appConn
 	s.appConnReader = bufio.NewReader(s.appConn)
-	s.errChan = make(chan error, 2)
 	s.isPreAuth = true
+	s.controlAddr = controlAddr
+	s.password = password
+	s.errChan = make(chan error, 2)
 	return s
 }

@@ -10,7 +10,6 @@ commands".  But on a positive note, it's not a collection of bash and doesn't
 call netcat (Yes, I'm aware that they rewrote it in Python).
 
 Limitations/differences:
- * It is currently hardcoded to connect to a ControlSocket.
  * It only supports NULL and SAFECOOKIE authentication.
  * It does not lie about the SocksPort.
  * It does not limit request lengths, because that's tor's problem, not mine.
@@ -27,7 +26,8 @@ CookieAuthentication 1
 CookieAuthFile /var/run/tor/control_auth_cookie
 CookieAuthFileGroupReadable 1
 
-# This requirs control port interaction over AF_UNIX.
+# The default filter config is to connect to a socket, but the address
+# of the real control port can be changed with '--control-address'.
 ControlSocket /var/run/tor/control
 ControlSocketsGroupWritable 1
 ```
@@ -46,7 +46,7 @@ port is hardcoded to what Tor Browser expects.
 
 Bugs:
  * I should stop being lazy and add command line options so people can specify a
-   password/the address of the real control port.
+   password.
 
 Acknowledgements:
  * https://www.whonix.org/wiki/Dev/Control_Port_Filter_Proxy
