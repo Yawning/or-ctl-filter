@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -200,19 +201,27 @@ func (s *session) sendErrUnrecognizedCommand() error {
 }
 
 func (s *session) sendErrUnexpectedArgCount(cmd string, expected, actual int) error {
+	var err error
+	var respStr string
 	if expected > actual {
-		respStr := "512 Too many arguments to " + cmd + "\r\n"
-		_, err := s.appConnWrite(false, []byte(respStr))
-		return err
+		respStr = "512 Too many arguments to " + cmd + "\r\n"
 	} else {
-		respStr := "512 Missing argument to " + cmd + "\r\n"
-		_, err := s.appConnWrite(false, []byte(respStr))
-		return err
+		respStr = "512 Missing argument to " + cmd + "\r\n"
 	}
+	_, err = s.appConnWrite(false, []byte(respStr))
+	return err
 }
 
 func (s *session) onCmdProtocolInfo(splitCmd []string) error {
-	// XXX: Do something with splitCmd like validate args.
+	for i := 1; i < len(splitCmd); i++ {
+		v := splitCmd[i]
+		if _, err := strconv.ParseInt(v, 10, 32); err != nil {
+			log.Printf("PROTOCOLINFO received with invalid arg")
+			respStr := "513 No such version \"" + v + "\"\r\n"
+			_, err := s.appConnWrite(false, []byte(respStr))
+			return err
+		}
+	}
 	respStr := "250-PROTOCOLINFO 1\r\n250-AUTH METHODS=NULL,HASHEDPASSWORD\r\n250-VERSION Tor=\"" + s.protoInfo.TorVersion + "\"\r\n" + responseOk
 	_, err := s.appConnWrite(false, []byte(respStr))
 	return err
