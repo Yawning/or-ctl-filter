@@ -26,18 +26,16 @@ import (
 )
 
 const (
-	defaultLogFile     = "or-ctl-filter.log"
-	defaultControlAddr = "unix:///var/run/tor/control"
-
+	defaultLogFile      = "or-ctl-filter.log"
+	defaultControlAddr  = "unix:///var/run/tor/control"
 	defaultFilteredAddr = "tcp://127.0.0.1:9151"
-	torControlAddr      = "127.0.0.1:9151" // Match ControlPort in torrc-defaults.
 )
 
 func main() {
 	enableLogging := flag.Bool("enable-logging", false, "enable logging")
 	logFile := flag.String("log-file", defaultLogFile, "log file")
 	controlAddr := flag.String("control-address", defaultControlAddr, "tor control port address")
-	filteredAddr := flag.String("filtered-control-address", defaultFilteredAddr, "filtered control port address")
+	filteredAddr := flag.String("filtered-address", defaultFilteredAddr, "filtered control port address")
 	flag.Parse()
 
 	// Deal with logging.
