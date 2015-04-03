@@ -63,10 +63,10 @@ func (s *session) FilterSession() {
 	// Connect to the real control port.
 	network, addr, err := utils.ParseControlPortString(s.controlAddr)
 	if err != nil {
-		log.Printf("Failed to resolve the tor control port: %s\n", err)
+		log.Printf("Failed to resolve tor control port: %s\n", err)
 	}
 	if s.torConn, err = bulb.Dial(network, addr); err != nil {
-		log.Printf("Failed to connect to the tor control port: %s\n", err)
+		log.Printf("Failed to connect to tor control port: %s\n", err)
 		return
 	}
 	defer s.torConn.Close()

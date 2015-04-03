@@ -52,7 +52,7 @@ func main() {
 	// Initialize the listener
 	fNet, fAddr, err := utils.ParseControlPortString(*filteredAddr)
 	if err != nil {
-		log.Fatalf("Failed to resolved filtere port: %s\n", err)
+		log.Fatalf("Failed to resolve filter port: %s\n", err)
 	}
 	ln, err := net.Listen(fNet, fAddr)
 	if err != nil {
