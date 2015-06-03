@@ -1,5 +1,5 @@
 /*
- * session.go - or-ctl-filter session instance.
+ * session.go - or-ctl-filter Tor control port interface.
  *
  * To the extent possible under law, Yawning Angel has waived all copyright and
  * related or neighboring rights to or-ctl-filter, using the creative commons
@@ -7,7 +7,8 @@
  * <http://creativecommons.org/publicdomain/zero/1.0/> for full details.
  */
 
-package main
+// Package tor implements the Tor control port session/interface.
+package tor
 
 import (
 	"bufio"
@@ -20,8 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yawning/bulb"
-	"github.com/yawning/bulb/utils"
+	"github.com/yawning/or-ctl-filter/config"
 )
 
 const (
@@ -39,74 +39,111 @@ const (
 )
 
 type session struct {
+	cfg *config.Config
+
 	appConn          net.Conn
 	appConnReader    *bufio.Reader
 	appConnWriteLock sync.Mutex
 
-	torConn   *bulb.Conn
-	protoInfo *bulb.ProtocolInfo
-
-	isPreAuth   bool
-	controlAddr string
-	password    string
+	backend   sessionBackend
+	isPreAuth bool
 
 	sync.WaitGroup
 	errChan chan error
 }
 
-func (s *session) FilterSession() {
+type sessionBackend interface {
+	Init() error
+	Term()
+
+	TorVersion() string
+
+	OnNewnym([]byte) error
+
+	RelayTorToApp()
+}
+
+// InitCtlListener initializes the control port listener.
+func InitCtlListener(cfg *config.Config, wg *sync.WaitGroup) {
+	ln, err := net.Listen(cfg.FilteredNetAddr())
+	if err != nil {
+		log.Fatalf("ERR/tor: Failed to listen on the control address: %v", err)
+	}
+
+	wg.Add(1)
+	go filterAcceptLoop(cfg, ln, wg)
+}
+
+func filterAcceptLoop(cfg *config.Config, ln net.Listener, wg *sync.WaitGroup) error {
+	defer wg.Done()
+	defer ln.Close()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if e, ok := err.(net.Error); ok && !e.Temporary() {
+				log.Printf("ERR/tor: Failed to Accept(): %v", err)
+				return err
+			}
+		}
+
+		// Create the appropriate session instance.
+		s := newSession(cfg, conn)
+		go s.sessionWorker()
+	}
+}
+
+func newSession(cfg *config.Config, conn net.Conn) *session {
+	s := &session{
+		cfg:           cfg,
+		appConn:       conn,
+		appConnReader: bufio.NewReader(conn),
+		isPreAuth:     true,
+		errChan:       make(chan error, 2),
+	}
+	return s
+}
+
+func (s *session) sessionWorker() {
 	defer s.appConn.Close()
 
 	clientAddr := s.appConn.RemoteAddr()
-	log.Printf("New app connection from: %s\n", clientAddr)
+	log.Printf("INFO/tor: New ctrl connection from: %s", clientAddr)
 
-	// Connect to the real control port.
-	network, addr, err := utils.ParseControlPortString(s.controlAddr)
-	if err != nil {
-		log.Printf("Failed to resolve tor control port: %s\n", err)
-	}
-	if s.torConn, err = bulb.Dial(network, addr); err != nil {
-		log.Printf("Failed to connect to tor control port: %s\n", err)
-		return
-	}
-	defer s.torConn.Close()
-
-	// Get a valid PROTOCOLINFO command so we can lie about the version.
-	if s.protoInfo, err = s.torConn.ProtocolInfo(); err != nil {
-		log.Printf("Failed to query protocol info: %s\n", err)
-		return
+	// Initialize the appropriate backend.
+	if s.cfg.Tor.Enable {
+		s.backend = newTorBackend(s)
+	} else {
+		s.backend = newStubBackend(s)
 	}
 
-	// Authenticate with the real tor connection.
-	if err = s.torConn.Authenticate(s.password); err != nil {
-		log.Printf("Failed to connect to the tor control port: %s\n", err)
+	if err := s.backend.Init(); err != nil {
+		log.Printf("ERR/tor: Failed to initialize backend: %v", err)
 		return
 	}
+	defer s.backend.Term()
 
 	// Handle all of the allowed commands till the client authenticates.
-	if err = s.processPreAuth(); err != nil {
-		log.Printf("[PreAuth]: %s", err)
+	if err := s.processPreAuth(); err != nil {
+		log.Printf("ERR/tor: [PreAuth]: %s", err)
 		return
 	}
 
 	s.Add(2)
-	go s.proxyTorToApp()
+	go s.backend.RelayTorToApp()
 	go s.proxyAndFilerApp()
 
 	// Wait till all sessions are finished, log and return.
 	s.Wait()
 	if len(s.errChan) > 0 {
-		err = <-s.errChan
-		log.Printf("Closed client connection from: %s: %s\n", clientAddr, err)
+		err := <-s.errChan
+		log.Printf("INFO/tor: Closed client connection from: %s: %v", clientAddr, err)
 	} else {
-		log.Printf("Closed client connection from: %s\n", clientAddr)
+		log.Printf("INFO/tor: Closed client connection from: %v", clientAddr)
 	}
 }
 
 func (s *session) processPreAuth() error {
-	// Ok, we have a valid upstream control port connection.  Process
-	// all of the commands a client can issue before authentication.
-
 	sentProtocolInfo := false
 	for {
 		cmd, splitCmd, _, err := s.appConnReadLine()
@@ -141,31 +178,13 @@ func (s *session) processPreAuth() error {
 			return fmt.Errorf("Invalid app command: '%s'", cmd)
 		}
 	}
-}
-
-func (s *session) proxyTorToApp() {
-	defer s.Done()
-	defer s.appConn.Close()
-	defer s.torConn.Close()
-
-	rd := bufio.NewReader(s.torConn)
-	for {
-		line, err := rd.ReadBytes('\n')
-		if err != nil {
-			s.errChan <- err
-			break
-		}
-		if _, err = s.appConnWrite(true, line); err != nil {
-			s.errChan <- err
-			break
-		}
-	}
+	return nil
 }
 
 func (s *session) proxyAndFilerApp() {
 	defer s.Done()
 	defer s.appConn.Close()
-	defer s.torConn.Close()
+	defer s.backend.Term()
 
 	for {
 		cmd, splitCmd, raw, err := s.appConnReadLine()
@@ -182,7 +201,7 @@ func (s *session) proxyAndFilerApp() {
 		case cmdSignal:
 			err = s.onCmdSignal(splitCmd, raw)
 		default:
-			log.Printf("Filtering command: [%s]\n", cmd)
+			log.Printf("Filtering command: [%s]", cmd)
 			err = s.sendErrUnrecognizedCommand()
 		}
 		if err != nil {
@@ -190,6 +209,7 @@ func (s *session) proxyAndFilerApp() {
 			break
 		}
 	}
+
 }
 
 func (s *session) sendErrAuthenticationRequired() error {
@@ -224,7 +244,8 @@ func (s *session) onCmdProtocolInfo(splitCmd []string) error {
 			return err
 		}
 	}
-	respStr := "250-PROTOCOLINFO 1\r\n250-AUTH METHODS=NULL,HASHEDPASSWORD\r\n250-VERSION Tor=\"" + s.protoInfo.TorVersion + "\"\r\n" + responseOk
+	torVersion := s.backend.TorVersion()
+	respStr := "250-PROTOCOLINFO 1\r\n250-AUTH METHODS=NULL,HASHEDPASSWORD\r\n250-VERSION Tor=\"" + torVersion + "\"\r\n" + responseOk
 	_, err := s.appConnWrite(false, []byte(respStr))
 	return err
 }
@@ -234,12 +255,15 @@ func (s *session) onCmdGetInfo(splitCmd []string, raw []byte) error {
 	if len(splitCmd) != 2 {
 		return s.sendErrUnexpectedArgCount(cmdGetInfo, 2, len(splitCmd))
 	} else if splitCmd[1] != argGetInfoSocks {
-		log.Printf("Filtering GETINFO: [%s]\n", splitCmd[1])
+		log.Printf("Filtering GETINFO: [%s]", splitCmd[1])
 		respStr := "552 Unrecognized key \"" + splitCmd[1] + "\"\r\n"
 		_, err := s.appConnWrite(false, []byte(respStr))
 		return err
 	} else {
-		_, err := s.torConn.Write(raw)
+		log.Printf("Spoofing GETINFO: [%s]", splitCmd[1])
+		_, socksAddr := s.cfg.SOCKSNetAddr()
+		respStr := "250-" + argGetInfoSocks + "=\"" + socksAddr + "\"\r\n" + responseOk
+		_, err := s.appConnWrite(false, []byte(respStr))
 		return err
 	}
 }
@@ -249,13 +273,12 @@ func (s *session) onCmdSignal(splitCmd []string, raw []byte) error {
 	if len(splitCmd) != 2 {
 		return s.sendErrUnexpectedArgCount(cmdSignal, 2, len(splitCmd))
 	} else if splitCmd[1] != argSignalNewnym {
-		log.Printf("Filtering SIGNAL: [%s]\n", splitCmd[1])
+		log.Printf("Filtering SIGNAL: [%s]", splitCmd[1])
 		respStr := "552 Unrecognized signal code \"" + splitCmd[1] + "\"\r\n"
 		_, err := s.appConnWrite(false, []byte(respStr))
 		return err
 	} else {
-		_, err := s.torConn.Write(raw)
-		return err
+		return s.backend.OnNewnym(raw)
 	}
 }
 
@@ -271,7 +294,7 @@ func (s *session) appConnWrite(fromServer bool, b []byte) (int, error) {
 
 	s.appConnWriteLock.Lock()
 	defer s.appConnWriteLock.Unlock()
-	log.Printf("%s %s", prefix, bytes.TrimSpace(b))
+	log.Printf("DEBUG/tor: %s %s", prefix, bytes.TrimSpace(b))
 	return s.appConn.Write(b)
 }
 
@@ -287,20 +310,9 @@ func (s *session) appConnReadLine() (cmd string, splitCmd []string, rawLine []by
 		prefix = "C:"
 	}
 	trimmedLine := bytes.TrimSpace(rawLine)
-	log.Printf("%s %s", prefix, trimmedLine)
+	log.Printf("DEBUG/tor: %s %s", prefix, trimmedLine)
 
 	splitCmd = strings.Split(string(trimmedLine), " ")
 	cmd = strings.ToUpper(strings.TrimSpace(splitCmd[0]))
 	return
-}
-
-func newSession(appConn net.Conn, controlAddr, password string) *session {
-	s := new(session)
-	s.appConn = appConn
-	s.appConnReader = bufio.NewReader(s.appConn)
-	s.isPreAuth = true
-	s.controlAddr = controlAddr
-	s.password = password
-	s.errChan = make(chan error, 2)
-	return s
 }

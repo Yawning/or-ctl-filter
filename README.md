@@ -1,19 +1,22 @@
 ### or-ctl-filter - "control-port-filter" without the bash.
 #### Yawning Angel (yawning at schwanenlied dot me)
 
-or-ctl-filter is a Tor Control Port filter in the spirit of
-["control-port-filter"](https://github.com/Whonix/control-port-filter) by the
-Whonix developers.  It is more limited as the only use case considered is
-"I want to run Tor Browser on my desktop with a system tor service and have
-'about:tor' and 'New Identity' work while disallowing scary control port
-commands".  But on a positive note, it's not a collection of bash and doesn't
-call netcat (Yes, I'm aware that they rewrote it in Python).
+or-ctl-filter is a Tor Control Port filter/shim.  It used to be a bash-less
+rewrite of ["control-port-filter"](https://github.com/Whonix/control-port-filter)
+by the Whonix developers, but they have since rewrote "control-port-filter" in
+Python, and or-ctl-filter has been extended to provide much more functionality.
+
+Dependencies:
+ * https://github.com/BurntSushi/toml (TOML parser)
+ * https://github.com/yawning/bulb (Control port library)
+ * Tor (Runtime, optional)
+ * I2P (Runtime, optional)
 
 Limitations/differences:
  * It only supports NULL and SAFECOOKIE authentication.
- * It does not lie about the SocksPort.
  * It does not limit request lengths, because that's tor's problem, not mine.
  * It does not allow GETINFO inquries regarding tor's bootstrap process.
+ * It supports any combination of Tor, and I2P, including "neither".
 
 Commands allowed:
  * "GETINFO net/listeners/socks"
@@ -26,27 +29,38 @@ CookieAuthentication 1
 CookieAuthFile /var/run/tor/control_auth_cookie
 CookieAuthFileGroupReadable 1
 
-# The default filter config is to connect to a socket, but the address
-# of the real control port can be changed with '--control-address'.
 ControlSocket /var/run/tor/control
 ControlSocketsGroupWritable 1
 ```
 
 How to run:
 ```
-$ or-ctl-filter &
+$ or-ctl-filter -config-file=/path/to/or-ctl-filter.toml &
 $ export TOR_SKIP_LAUNCH=1
-$ export TOR_SOCKS_PORT=9050
 $ start-tor-browser
 ```
 
 I personally call `or-ctl-filter` from my openbox autostart file.  Bad things
-will happen if multiple instances are ran at the same time since the control
-port is hardcoded to what Tor Browser expects.
+will happen if multiple instances are ran at the same time, unless different
+configurations are specified.
 
-Bugs:
- * I should stop being lazy and add command line options so people can specify a
-   password.
+Notes:
+ * Why yes, this assumes that both I2P and Tor are running as system services,
+   and has no logic to launch either.
+ * It should work on Windows, but it is entirely untested and won't be.
+ * "New Identity" does not change the I2P path.
+ * "New Tor Circuit for this Site" does not change the I2P path.
+ * A few options are gigantic "Foot + Gun" items for the user.  In particular,
+   logging is unsanitized and incredibly spammy, and `UnsafeAllowDirect`
+   can allow for direct connections to the internet.
+
+TODO:
+ * Add support for I2P and `RESOLVE`/`RESOLVE_PTR`, so torsocks will work.
+ * Add support for authenticating with a password, though that sucks and
+   everyone should use cookie auth.
+ * Think about I2P outproxy support (But honestly, why when Tor is available).
+ * Consider allowing the Tor circuit display to work.
+ * Consider allowing bootstrap related events.
 
 Acknowledgements:
  * https://www.whonix.org/wiki/Dev/Control_Port_Filter_Proxy

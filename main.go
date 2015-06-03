@@ -7,68 +7,37 @@
  * <http://creativecommons.org/publicdomain/zero/1.0/> for full details.
  */
 
-// or-ctl-filter is a Tor Control Port filter in the spirit of
-// "control-port-filter" by the Whonix developers.  It is more limited as the
-// only use case considered is "I want to run Tor Browser on my desktop with a
-// system tor service and have 'about:tor' and 'New Identity' work while
-// disallowing scary control port commands".  But on a positive note, it's not
-// a collection of bash and doesn't call netcat.
+// or-ctl-filter is a Tor Control Port filter/shim.  It used to be a bash-less
+// rewrite of "control-port-filter" by the Whonix developers, but they have
+// since rewrote "control-port-filter" in Python, and or-ctl-filter has been
+// extended to provide much more functionality.
 package main
 
 import (
 	"flag"
-	"io/ioutil"
 	"log"
-	"net"
-	"os"
+	"sync"
 
-	"github.com/yawning/bulb/utils"
+	"github.com/yawning/or-ctl-filter/config"
+	"github.com/yawning/or-ctl-filter/proxy"
+	"github.com/yawning/or-ctl-filter/tor"
 )
 
-const (
-	defaultLogFile      = "or-ctl-filter.log"
-	defaultControlAddr  = "unix:///var/run/tor/control"
-	defaultFilteredAddr = "tcp://127.0.0.1:9151"
-)
+const defaultConfigFile = "or-ctl-filter.toml"
 
 func main() {
-	enableLogging := flag.Bool("enable-logging", false, "enable logging")
-	logFile := flag.String("log-file", defaultLogFile, "log file")
-	controlAddr := flag.String("control-address", defaultControlAddr, "tor control port address")
-	filteredAddr := flag.String("filtered-address", defaultFilteredAddr, "filtered control port address")
+	cfgFile := flag.String("config", defaultConfigFile, "config file")
 	flag.Parse()
 
-	// Deal with logging.
-	if !*enableLogging {
-		log.SetOutput(ioutil.Discard)
-	} else if *logFile != "" {
-		f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-		if err != nil {
-			log.Fatalf("Failed to create log file: %s\n", err)
-		}
-		log.SetOutput(f)
+	cfg, err := config.Load(*cfgFile)
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
 
-	// Initialize the listener
-	fNet, fAddr, err := utils.ParseControlPortString(*filteredAddr)
-	if err != nil {
-		log.Fatalf("Failed to resolve filter port: %s\n", err)
-	}
-	ln, err := net.Listen(fNet, fAddr)
-	if err != nil {
-		log.Fatalf("Failed to listen on the filter port: %s\n", err)
-	}
-	defer ln.Close()
+	// Initialize the various listeners.
+	var wg sync.WaitGroup
+	tor.InitCtlListener(cfg, &wg)
+	proxy.InitSocksListener(cfg, &wg)
 
-	// Listen for incoming connections, and dispatch workers.
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			log.Printf("Failed to Accept(): %s\n", err)
-			continue
-		}
-		// TODO: Allow specifying password.
-		s := newSession(conn, *controlAddr, "")
-		go s.FilterSession()
-	}
+	wg.Wait()
 }

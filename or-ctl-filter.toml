@@ -1,0 +1,65 @@
+# or-ctl-filter configuration file.
+
+# The filtered/fake Tor control port address.
+# Tor Browser expects the Control Port to be on 127.0.0.1:9151.
+FilteredAddress = "tcp://127.0.0.1:9151"
+
+# The SOCKS5 proxy address.
+# Tor Browser expects the SOCKS address to be on 127.0.0.1:9150.
+SOCKSAddress = "tcp://127.0.0.1:9150"
+
+# UNSAFE: Allow Direct connections.  Useful if you are not running Tor and still
+# wish to browse the normal internet, if Tor is configured, this option does not
+# do anything, as Tor has priority.
+UnsafeAllowDirect = false
+
+[Logging]
+  # UNSAFE: Enable/disable logging.  Logging is extremely verbose and not
+  # recommended unless debugging, as it makes no attempt to elide things like
+  # authentication credentials and destination addresses that are considered
+  # sensitive information.
+  Enable = false
+
+  # The (optional) log file.  If no File is specified, logging will be done to
+  # the console.
+  # File = "or-ctl-filter.log"
+
+[Tor]
+  # Enable/disable Tor support.
+  Enable = true
+
+  # The control port address of the actual Tor instance.
+  # This is usually one of:
+  #  * unix:///var/run/tor/control (system-service Tor)
+  #  * tcp://127.0.0.1:9051 (Poorly configured system-service Tor)
+  ControlAddress = "unix:///var/run/tor/control"
+
+  # The SOCKS address of the actual Tor instance.
+  # This is usually: tcp://127.0.0.1:9050
+  SOCKSAddress = "tcp://127.0.0.1:9050"
+
+[I2P]
+  # Enable/disable I2P support.
+  Enable = true
+
+  # Enable access to the I2P management console.
+  EnableManagement = true
+
+  # Enable access to the I2P Local Web Server.
+  EnableLocal = true
+
+  # The Management address of the i2p instance.
+  # This is usually: tcp://127.0.0.1:7657
+  ManagementAddress = "tcp://127.0.0.1:7657"
+
+  # The Local Web Server address of the i2p instance.
+  # This is usually: tcp://127.0.0.1:7658
+  LocalAddress = "tcp://127.0.0.1:7658"
+
+  # The HTTP address of the i2p instance.
+  # This is usually: tcp://127.0.0.1:4444
+  HTTPAddress = "tcp://127.0.0.1:4444"
+
+  # The HTTPS address of the i2p instance.
+  # This is usually: tcp://127.0.0.1:4445
+  HTTPSAddress = "tcp://127.0.0.1:4445"
