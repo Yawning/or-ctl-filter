@@ -6,6 +6,8 @@ rewrite of ["control-port-filter"](https://github.com/Whonix/control-port-filter
 by the Whonix developers, but they have since rewrote "control-port-filter" in
 Python, and or-ctl-filter has been extended to provide much more functionality.
 
+![screenshot](https://raw.github.com/Yawning/or-ctl-filter/screenshots/or-ctl-filter-tor-i2p.png)
+
 Dependencies:
  * https://github.com/BurntSushi/toml (TOML parser)
  * https://github.com/yawning/bulb (Control port library)
