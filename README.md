@@ -35,7 +35,7 @@ ControlSocketsGroupWritable 1
 
 How to run:
 ```
-$ or-ctl-filter -config-file=/path/to/or-ctl-filter.toml &
+$ or-ctl-filter -config=/path/to/or-ctl-filter.toml &
 $ export TOR_SKIP_LAUNCH=1
 $ start-tor-browser
 ```
