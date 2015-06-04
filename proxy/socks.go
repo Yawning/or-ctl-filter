@@ -117,11 +117,14 @@ func (s *session) sessionWorker() {
 		} else {
 			// Redispatch the RESOLVE/RESOLVE_PTR request via tor.
 			log.Printf("INFO/socks: Dispatching clearnet address: '%s' (Tor, DNS)", s.req.Addr.String())
-			if err = s.dispatchTorSOCKS(); err != nil {
-				return
-			}
+			err = s.dispatchTorSOCKS()
 		}
-		s.req.ReplyAddr(socks5.ReplySucceeded, s.bndAddr)
+
+		// If we reach here, the request has been dispatched and completed.
+		if err == nil {
+			// Successfully even, send the response back with the address.
+			s.req.ReplyAddr(socks5.ReplySucceeded, s.bndAddr)
+		}
 		return
 	case socks5.CommandConnect:
 	default:
