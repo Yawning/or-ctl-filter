@@ -38,6 +38,11 @@ UnsafeAllowDirect = false
   # This is usually: tcp://127.0.0.1:9050
   SOCKSAddress = "tcp://127.0.0.1:9050"
 
+  # UNSAFE: Suppress NEWNYM on the filtered/fake Tor Control port.  This is
+  # something that is considered extremely unwise unless your copy of Tor
+  # Browser clears isolation state on "New Identity".
+  SuppressNewnym = false
+
 [I2P]
   # Enable/disable I2P support.
   Enable = true

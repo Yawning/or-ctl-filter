@@ -278,6 +278,11 @@ func (s *session) onCmdSignal(splitCmd []string, raw []byte) error {
 		_, err := s.appConnWrite(false, []byte(respStr))
 		return err
 	} else {
+		if s.cfg.Tor.SuppressNewnym {
+			log.Printf("Filtering SIGNAL: NEWNYM")
+			_, err := s.appConnWrite(false, []byte(responseOk))
+			return err
+		}
 		return s.backend.OnNewnym(raw)
 	}
 }

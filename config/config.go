@@ -33,6 +33,7 @@ type TorCfg struct {
 	Enable         bool
 	ControlAddress string
 	SOCKSAddress   string
+	SuppressNewnym bool
 
 	ctrlNet, ctrlAddr   string
 	socksNet, socksAddr string
